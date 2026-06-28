@@ -378,6 +378,10 @@ class FilteringConfig(BaseModel):
     category_groups: Dict[str, CategoryGroupConfig] = Field(default_factory=dict)
     default_group: str = "other"
     default_group_limit: Optional[int] = Field(default=None, gt=0)
+    # 第一层把关:被判定为这些 signal_type 的新闻会被砍掉(存疑放行,不漏优先)
+    drop_signal_types: List[str] = Field(
+        default_factory=lambda: ["pr_hype", "rehash", "funding_fluff", "low_signal"]
+    )
 
 
 class Config(BaseModel):
