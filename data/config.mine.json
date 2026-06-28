@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "_comment": "已定制:使用 NVIDIA NIM 免费 API 调 DeepSeek;信源聚焦 AI 领域;中文输出。",
+
+  "ai": {
+    "provider": "deepseek",
+    "model": "deepseek-ai/deepseek-v4-pro",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "api_key_env": "NVIDIA_API_KEY",
+    "temperature": 0.4,
+    "max_tokens": 4096,
+    "throttle_sec": 1.5,
+    "analysis_concurrency": 1,
+    "enrichment_concurrency": 1,
+    "languages": ["zh"]
+  },
+
+  "email": {
+    "enabled": false
+  },
+
+  "sources": {
+    "rss": [
+      { "name": "Anthropic",          "url": "https://www.anthropic.com/rss.xml",                                  "enabled": true, "category": "ai-news" },
+      { "name": "OpenAI",             "url": "https://openai.com/blog/rss.xml",                                    "enabled": true, "category": "ai-news" },
+      { "name": "Google DeepMind",    "url": "https://deepmind.google/blog/rss.xml",                               "enabled": true, "category": "ai-news" },
+      { "name": "Hugging Face",       "url": "https://huggingface.co/blog/feed.xml",                               "enabled": true, "category": "ai-tools" },
+      { "name": "Mistral AI",         "url": "https://mistral.ai/news/feed.xml",                                   "enabled": true, "category": "ai-news" },
+      { "name": "Meta AI",            "url": "https://ai.meta.com/blog/rss/",                                      "enabled": true, "category": "ai-news" },
+      { "name": "The Verge AI",       "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",  "enabled": true, "category": "ai-news" },
+      { "name": "VentureBeat AI",     "url": "https://venturebeat.com/category/ai/feed/",                          "enabled": true, "category": "ai-news" },
+      { "name": "TechCrunch AI",      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",      "enabled": true, "category": "ai-news" },
+      { "name": "MIT Tech Review AI", "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed","enabled": true, "category": "ai-news" },
+      { "name": "Simon Willison",     "url": "https://simonwillison.net/atom/everything/",                         "enabled": true, "category": "ai-tools" },
+      { "name": "arXiv cs.CL",        "url": "http://export.arxiv.org/rss/cs.CL",                                  "enabled": false, "category": "ai-research" }
+    ],
+
+    "hackernews": {
+      "enabled": true,
+      "fetch_top_stories": 30,
+      "min_score": 100
+    },
+
+    "reddit": {
+      "enabled": true,
+      "subreddits": [
+        { "name": "LocalLLaMA",      "enabled": true },
+        { "name": "MachineLearning", "enabled": true }
+      ]
+    }
+  },
+
+  "filtering": {
+    "ai_score_threshold": 6.0,
+    "max_items": 20,
+    "drop_signal_types": ["pr_hype", "rehash", "funding_fluff", "low_signal"]
+  }
+}
