@@ -76,8 +76,8 @@ class ContentAnalyzer:
         return analyzed_items
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(min=2, max=10)
+        stop=stop_after_attempt(6),
+        wait=wait_exponential(min=5, max=60)
     )
     async def _analyze_item(self, item: ContentItem) -> None:
         """Analyze a single content item.
