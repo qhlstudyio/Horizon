@@ -41,6 +41,17 @@ SUMMARIES_DIR = Path("data/summaries")
 # 月度结晶输出目录(会被工作流推到知识库)
 OUTPUT_DIR = Path("data/monthly")
 
+
+def _la_today():
+    """返回洛杉矶时区的当前日期(系统所有日期统一用洛杉矶时间)。"""
+    try:
+        from zoneinfo import ZoneInfo
+        return dt.datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    except Exception:
+        # 兜底:zoneinfo 不可用时退回 UTC-7(夏令时近似)
+        return (dt.datetime.utcnow() - dt.timedelta(hours=7)).date()
+
+
 MONTHLY_SYSTEM = """你是顶尖的 AI 行业战略分析师。下面是某一整月里,每天的"AI 新闻整体分析"汇总。
 请基于这一个月的逐日分析,提炼出一篇**月度综述**。
 
@@ -69,7 +80,7 @@ def get_target_month():
     """确定要结晶哪个月。默认上个月。"""
     if len(sys.argv) > 1:
         return sys.argv[1]  # 形如 2026-06
-    today = dt.date.today()
+    today = _la_today()
     first = today.replace(day=1)
     last_month = first - dt.timedelta(days=1)
     return last_month.strftime("%Y-%m")
