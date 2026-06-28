@@ -4,11 +4,11 @@
 
   "ai": {
     "provider": "deepseek",
-    "model": "qwen/qwen3-next-80b-a3b-instruct",
+    "model": "z-ai/glm-5.1",
     "base_url": "https://integrate.api.nvidia.com/v1",
     "api_key_env": "NVIDIA_API_KEY",
-    "temperature": 0.4,
-    "max_tokens": 4096,
+    "temperature": 0.5,
+    "max_tokens": 8192,
     "throttle_sec": 5.0,
     "analysis_concurrency": 1,
     "enrichment_concurrency": 1,
@@ -23,8 +23,11 @@
       { "name": "Hugging Face",       "url": "https://huggingface.co/blog/feed.xml",                               "enabled": true, "category": "ai-tools" },
       { "name": "The Verge AI",       "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",  "enabled": true, "category": "ai-news" },
       { "name": "TechCrunch AI",      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",      "enabled": true, "category": "ai-news" },
-      { "name": "MIT Tech Review AI", "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/","enabled": true, "category": "ai-news" },
       { "name": "MarkTechPost",       "url": "https://www.marktechpost.com/feed/",                                 "enabled": true, "category": "ai-news" },
+      { "name": "VentureBeat AI",     "url": "https://venturebeat.com/category/ai/feed/",                          "enabled": true, "category": "ai-news" },
+      { "name": "The Decoder",        "url": "https://the-decoder.com/feed/",                                      "enabled": true, "category": "ai-news" },
+      { "name": "Synced",             "url": "https://syncedreview.com/feed/",                                     "enabled": true, "category": "ai-news" },
+      { "name": "BDTechTalks",        "url": "https://bdtechtalks.com/feed/",                                      "enabled": true, "category": "ai-news" },
       { "name": "Ahead of AI",        "url": "https://magazine.sebastianraschka.com/feed",                         "enabled": true, "category": "ai-research" },
       { "name": "Simon Willison",     "url": "https://simonwillison.net/atom/everything/",                         "enabled": true, "category": "ai-tools" },
       { "name": "arXiv cs.AI",        "url": "https://rss.arxiv.org/rss/cs.AI",                                    "enabled": false, "category": "ai-research" }

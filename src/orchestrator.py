@@ -712,11 +712,65 @@ class HorizonOrchestrator:
         await enricher.enrich_batch(items)
         self.console.print(f"   Enriched {len(items)} items\n")
 
-    async def _synthesize_daily(self, items: List[ContentItem]) -> str:
-        """第三层连面:对今日通过的全部新闻做整体分析。
+    def _load_recent_syntheses(self, days: int = 30) -> str:
+        """读取最近 N 天的每日整体观察 + 月度综述,作为第三层的趋势背景。
 
-        Horizon 原版没有这一层。把当天每条新闻的标题 + 核心解读汇总后,
-        交给 AI 做"连面"——找共同主线、印证与矛盾、对大图景的贡献。
+        两部分:
+        1. 最近 days 天的每日整体观察(horizon-{date}-synthesis.md)——近期脉络
+        2. 已有的月度综述(monthly/*.md,若已拉回)——更长期的趋势骨架
+        系统刚启动时两者都可能为空。
+        """
+        import glob as _glob
+        from pathlib import Path as _Path
+        try:
+            summaries_dir = self.storage.summaries_dir
+        except Exception:
+            return ""
+
+        today = _la_date_str()
+        parts = []
+
+        # --- 1. 最近 days 天的每日整体观察 ---
+        files = sorted(_glob.glob(str(_Path(summaries_dir) / "horizon-*-synthesis.md")))
+        entries = []
+        for fp in files:
+            name = _Path(fp).name
+            date_part = name.replace("horizon-", "").replace("-synthesis.md", "")
+            if date_part >= today:
+                continue
+            try:
+                text = _Path(fp).read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            if text:
+                entries.append((date_part, text))
+        entries = entries[-days:]
+        if entries:
+            daily_block = "\n\n".join(f"【{d}】\n{t}" for d, t in entries)
+            parts.append("=== 最近 %d 天的每日观察 ===\n%s" % (days, daily_block))
+
+        # --- 2. 月度综述(更长期的趋势骨架,若工作流已拉回到 monthly/)---
+        monthly_dir = _Path(summaries_dir).parent / "monthly"
+        if monthly_dir.exists():
+            mfiles = sorted(_glob.glob(str(monthly_dir / "*.md")))[-3:]  # 最近3个月
+            mblocks = []
+            for mf in mfiles:
+                try:
+                    mtext = _Path(mf).read_text(encoding="utf-8").strip()
+                except Exception:
+                    continue
+                if mtext:
+                    mblocks.append(f"【{_Path(mf).stem}】\n{mtext}")
+            if mblocks:
+                parts.append("=== 近几个月的月度综述(长期趋势骨架)===\n" + "\n\n".join(mblocks))
+
+        return "\n\n".join(parts)
+
+    async def _synthesize_daily(self, items: List[ContentItem]) -> str:
+        """第三层连面:对今日通过的全部新闻做整体分析,并结合近 30 天 + 月度趋势。
+
+        把当天每条新闻的标题 + 核心解读汇总,连同最近 30 天的历史整体观察和
+        月度综述,交给 AI 做"连面"——今日主线、印证矛盾、纵向趋势、有指导性的研判。
         返回的文本会渲染进日报顶部,并单独存盘作为月度沉淀的原料。
         """
         if not items:
@@ -737,20 +791,24 @@ class HorizonOrchestrator:
             lines.append(f"{i}. 【{title}】(重要性 {item.ai_score}/10)\n   {detail}")
         items_digest = "\n\n".join(lines)
 
-        today = _la_date_str()
-        user_prompt = DAILY_SYNTHESIS_USER.format(date=today, items_digest=items_digest)
+        # 读取最近 30 天历史 + 月度综述作为趋势背景(系统刚启动时为空)
+        history_context = self._load_recent_syntheses(days=30)
+        if not history_context:
+            history_context = "(暂无历史数据,系统刚启动。本次只做今日横向分析,纵向趋势判断需更多天积累。)"
 
-        self.console.print("🧩 第三层:生成今日整体分析(连面)...")
+        today = _la_date_str()
+        user_prompt = DAILY_SYNTHESIS_USER.format(
+            date=today, history_context=history_context, items_digest=items_digest
+        )
+
+        self.console.print("🧩 第三层:生成今日整体分析(连面 + 7天趋势)...")
         try:
             ai_client = create_ai_client(self.config.ai)
             synthesis = await ai_client.complete(
                 system=DAILY_SYNTHESIS_SYSTEM,
                 user=user_prompt,
             )
-            synthesis = (synthesis or "").strip()
-            # 去掉可能的 <think> 推理段(部分模型会带)
-            import re as _re
-            synthesis = _re.sub(r"<think>.*?</think>", "", synthesis, flags=_re.DOTALL).strip()
+            synthesis = self._clean_synthesis_output(synthesis)
             # 单独存盘:作为沉淀层(月度结晶)的原料
             try:
                 self.storage.save_daily_summary(today, synthesis, language="synthesis")
@@ -761,6 +819,38 @@ class HorizonOrchestrator:
         except Exception as e:
             self.console.print(f"[yellow]⚠️  第三层整体分析失败,跳过: {e}[/yellow]\n")
             return ""
+
+    @staticmethod
+    def _clean_synthesis_output(text: str) -> str:
+        """清洗第三层输出:去思考段,并兜底处理被包进 JSON 的情况。
+
+        即使提示词要求纯文本,推理模型偶尔仍会包成 {"analysis": "..."} 或带
+        ```json 围栏。这里统一还原成纯正文,避免日报里出现代码块。
+        """
+        import re as _re
+        import json as _json
+        if not text:
+            return ""
+        text = text.strip()
+        # 去 <think> 推理段
+        text = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL).strip()
+        # 去 markdown 代码围栏
+        text = _re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=_re.MULTILINE).strip()
+        # 若整体是一个 JSON 对象,尝试提取其中的文本字段
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                obj = _json.loads(text)
+                if isinstance(obj, dict):
+                    for key in ("analysis", "synthesis", "content", "text", "result"):
+                        if key in obj and isinstance(obj[key], str):
+                            return obj[key].strip()
+                    # 没有已知键就把所有字符串值拼起来
+                    vals = [v for v in obj.values() if isinstance(v, str)]
+                    if vals:
+                        return "\n\n".join(vals).strip()
+            except Exception:
+                pass  # 解析失败就按原文返回(已去围栏)
+        return text
 
     def _inject_synthesis(self, summary: str, synthesis: str, lang: str) -> str:
         """把第三层整体分析插入日报正文。

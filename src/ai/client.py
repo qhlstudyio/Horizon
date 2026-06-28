@@ -86,6 +86,27 @@ def _normalize_ollama_base_url(base_url: str) -> str:
     return f"{normalized}/v1"
 
 
+
+def _extract_message_text(response) -> str:
+    """从 OpenAI 兼容返回里稳健地提取文本。
+
+    兼容推理模型(如 GLM-5.1):正文在 message.content;若 content 为空,
+    部分推理模型把可用输出放在 reasoning_content,则退回取它。
+    """
+    try:
+        msg = response.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    content = getattr(msg, "content", None)
+    if content and content.strip():
+        return content
+    # 退回:推理模型可能把内容放在 reasoning_content
+    reasoning = getattr(msg, "reasoning_content", None)
+    if reasoning and reasoning.strip():
+        return reasoning
+    return content or ""
+
+
 class AIClient(ABC):
     """Abstract base class for AI clients."""
 
@@ -291,7 +312,7 @@ class OpenAIClient(AIClient):
                 input_tokens=getattr(usage, "prompt_tokens", 0),
                 output_tokens=getattr(usage, "completion_tokens", 0),
             )
-        return response.choices[0].message.content
+        return _extract_message_text(response)
 
     async def _do_request(
         self,
@@ -419,7 +440,7 @@ class AzureOpenAIClient(AIClient):
                 input_tokens=getattr(usage, "prompt_tokens", 0),
                 output_tokens=getattr(usage, "completion_tokens", 0),
             )
-        return response.choices[0].message.content
+        return _extract_message_text(response)
 
     async def _create_completion(
         self,
