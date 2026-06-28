@@ -160,3 +160,5 @@ class ContentAnalyzer:
         item.ai_reason = result.get("reason", "")
         item.ai_summary = result.get("summary", item.title)
         item.ai_tags = result.get("tags", [])
+        # 第一层把关新增:存储 signal_type 噪音判定(供 orchestrator 过滤明显噪音)
+        item.metadata["signal_type"] = result.get("signal_type", "real")
