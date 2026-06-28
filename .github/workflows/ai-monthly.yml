@@ -1,0 +1,65 @@
+name: AI 月度综述(沉淀层)
+
+# 每月 1 号北京时间早上 9:00 运行(UTC 01:00),结晶上一个月。
+on:
+  schedule:
+    - cron: "0 1 1 * *"
+  workflow_dispatch:
+
+jobs:
+  monthly-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 Horizon
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install openai
+
+      # 先从知识库仓库取回历史的每日整体分析(沉淀原料)
+      - name: 取回历史整体分析
+        env:
+          KB_REPO: ${{ secrets.KB_REPO }}
+          KB_TOKEN: ${{ secrets.KB_TOKEN }}
+        run: |
+          set -e
+          git clone "https://x-access-token:${KB_TOKEN}@github.com/${KB_REPO}.git" kb
+          # 把知识库里存的每日整体分析放回 Horizon 预期的位置
+          mkdir -p data/summaries
+          if [ -d "kb/daily-ai-brief/_synthesis" ]; then
+            # 把 {date}-synthesis.md 转回 horizon-{date}-synthesis.md 命名供脚本识别
+            find kb/daily-ai-brief/_synthesis -name "*-synthesis.md" | while read f; do
+              base=$(basename "$f")
+              date_part=${base%-synthesis.md}
+              cp "$f" "data/summaries/${date_part}-summary-synthesis.md"
+            done
+          fi
+
+      - name: 生成月度综述
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python scripts/monthly_digest.py
+
+      - name: 推送月度综述到知识库
+        env:
+          KB_REPO: ${{ secrets.KB_REPO }}
+          KB_TOKEN: ${{ secrets.KB_TOKEN }}
+        run: |
+          set -e
+          cd kb
+          mkdir -p daily-ai-brief/monthly
+          cp ../data/monthly/*.md daily-ai-brief/monthly/ 2>/dev/null || echo "无月度文件"
+          git config user.name "ai-brief-bot"
+          git config user.email "actions@github.com"
+          git add daily-ai-brief/monthly
+          if git diff --staged --quiet; then
+            echo "无变化"
+          else
+            git commit -m "AI 月度综述: $(date -u +'%Y-%m')"
+            git push
+          fi

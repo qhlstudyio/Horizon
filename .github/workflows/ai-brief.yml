@@ -1,0 +1,93 @@
+name: AI 每日简报(三层解读)
+
+# 每天北京时间早上 8:00 运行(UTC 00:00)。改时间就改下面的 cron(用 UTC,北京=UTC+8)。
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:        # 允许在 GitHub 网页手动点一下立即运行(方便测试)
+
+jobs:
+  daily-brief:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # 1. 检出 Horizon(本仓库)
+      - name: 检出 Horizon
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: 安装依赖
+        run: uv sync
+
+      # 2. 用我们定制的配置
+      - name: 启用定制配置
+        run: cp data/config.mine.json data/config.json
+
+      # 3. 跑 Horizon(三层解读已内置在代码里)
+      - name: 生成今日简报
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: uv run horizon --hours 24
+
+      # 4. 把简报推送到你的【知识库仓库】
+      #    需要先在 Secrets 配好 KB_REPO(知识库仓库,格式 用户名/仓库名)
+      #    和 KB_TOKEN(有该仓库写权限的 Personal Access Token)
+      - name: 推送到知识库仓库
+        env:
+          KB_REPO: ${{ secrets.KB_REPO }}
+          KB_TOKEN: ${{ secrets.KB_TOKEN }}
+        run: |
+          set -e
+          DATE=$(date -u +'%Y-%m-%d')
+          YEAR=$(date -u +'%Y')
+          MONTH=$(date -u +'%m')
+
+          # 克隆你的知识库仓库到临时目录
+          git clone "https://x-access-token:${KB_TOKEN}@github.com/${KB_REPO}.git" kb
+          cd kb
+
+          # 目标目录:知识库/daily-ai-brief/年/月/
+          TARGET="daily-ai-brief/${YEAR}/${MONTH}"
+          mkdir -p "$TARGET"
+
+          # 复制今日简报(中文版)
+          if [ -f "../data/summaries/horizon-${DATE}-zh.md" ]; then
+            cp "../data/summaries/horizon-${DATE}-zh.md" "${TARGET}/${DATE}.md"
+          fi
+
+          # 复制今日整体分析(第三层,沉淀原料)
+          mkdir -p "daily-ai-brief/_synthesis/${YEAR}/${MONTH}"
+          if [ -f "../data/summaries/horizon-${DATE}-synthesis.md" ]; then
+            cp "../data/summaries/horizon-${DATE}-synthesis.md" \
+               "daily-ai-brief/_synthesis/${YEAR}/${MONTH}/${DATE}-synthesis.md"
+          fi
+
+          # 维护一个索引页:把最新一天加到最上面
+          INDEX="daily-ai-brief/index.md"
+          if [ ! -f "$INDEX" ]; then
+            printf '# AI 每日简报 · 索引\n\n每日自动生成,最新在最上方。\n\n<!-- entries -->\n' > "$INDEX"
+          fi
+          # 去掉同日旧行(重跑不重复),再插到 <!-- entries --> 之后
+          grep -v "\[${DATE}\]" "$INDEX" > "$INDEX.tmp" || cp "$INDEX" "$INDEX.tmp"
+          awk -v line="- **[${DATE}](${YEAR}/${MONTH}/${DATE}.md)**" \
+            '{print} /<!-- entries -->/{print line}' "$INDEX.tmp" > "$INDEX"
+          rm -f "$INDEX.tmp"
+
+          # 提交并推送
+          git config user.name "ai-brief-bot"
+          git config user.email "actions@github.com"
+          git add daily-ai-brief
+          if git diff --staged --quiet; then
+            echo "无变化,跳过提交"
+          else
+            git commit -m "AI 每日简报: ${DATE}"
+            git push
+          fi
