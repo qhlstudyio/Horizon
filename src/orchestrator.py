@@ -115,6 +115,33 @@ class HorizonOrchestrator:
                 f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
             )
 
+            # 5.1 第一层把关:砍掉被判定为明显噪音的新闻(存疑放行,不漏优先)
+            # signal_type 由 analyzer 写入 metadata。只过滤"相当确信"的噪音类型;
+            # "real" 和任何缺失值一律放行。可在 config 里通过 filtering.drop_signal_types 调整。
+            noise_types = set(
+                getattr(self.config.filtering, "drop_signal_types", None)
+                or ["pr_hype", "rehash", "funding_fluff", "low_signal"]
+            )
+            before_gatekeep = len(important_items)
+            kept_items = []
+            dropped_noise = []
+            for item in important_items:
+                stype = item.metadata.get("signal_type", "real")
+                if stype in noise_types:
+                    dropped_noise.append(item)
+                else:
+                    kept_items.append(item)
+            if dropped_noise:
+                self.console.print(
+                    f"🚪 把关:砍掉 {len(dropped_noise)} 条明显噪音 "
+                    f"({before_gatekeep} → {len(kept_items)});类型分布:"
+                    + ", ".join(sorted({i.metadata.get('signal_type','?') for i in dropped_noise}))
+                    + "\n"
+                )
+            important_items = kept_items
+            # 保留被砍的噪音清单,供日报"折叠区"展示(仍可见链接,只是不深挖)
+            self._dropped_noise_items = dropped_noise
+
             # 5.5 Semantic deduplication: drop items covering the same topic
             deduped_items = await self.merge_topic_duplicates(important_items)
             if len(deduped_items) < len(important_items):
@@ -143,11 +170,18 @@ class HorizonOrchestrator:
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
 
+            # 6.5 第三层连面:对今日通过的全部新闻做整体分析(Horizon 原版没有)
+            # 产物既渲染进日报顶部,也单独存盘作为"沉淀层"(月度结晶)的原料。
+            daily_synthesis = await self._synthesize_daily(important_items)
+
             # 7. Generate and save daily summaries for each configured language
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
                 summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
+                # 把第三层整体分析插到日报正文顶部(目录之后、逐条之前)
+                if daily_synthesis:
+                    summary = self._inject_synthesis(summary, daily_synthesis, lang)
 
                 # Save to data/summaries/
                 summary_path = self.storage.save_daily_summary(today, summary, language=lang)
@@ -667,6 +701,73 @@ class HorizonOrchestrator:
         enricher = ContentEnricher(ai_client)
         await enricher.enrich_batch(items)
         self.console.print(f"   Enriched {len(items)} items\n")
+
+    async def _synthesize_daily(self, items: List[ContentItem]) -> str:
+        """第三层连面:对今日通过的全部新闻做整体分析。
+
+        Horizon 原版没有这一层。把当天每条新闻的标题 + 核心解读汇总后,
+        交给 AI 做"连面"——找共同主线、印证与矛盾、对大图景的贡献。
+        返回的文本会渲染进日报顶部,并单独存盘作为月度沉淀的原料。
+        """
+        if not items:
+            return ""
+
+        from .ai.prompts import DAILY_SYNTHESIS_SYSTEM, DAILY_SYNTHESIS_USER
+
+        # 拼装"今日新闻摘要清单"喂给 AI:标题 + 已生成的逐条解读
+        lines = []
+        for i, item in enumerate(items, start=1):
+            title = item.metadata.get("title_zh") or item.title
+            detail = (
+                item.metadata.get("detailed_summary_zh")
+                or item.metadata.get("detailed_summary")
+                or item.ai_summary
+                or ""
+            )
+            lines.append(f"{i}. 【{title}】(重要性 {item.ai_score}/10)\n   {detail}")
+        items_digest = "\n\n".join(lines)
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        user_prompt = DAILY_SYNTHESIS_USER.format(date=today, items_digest=items_digest)
+
+        self.console.print("🧩 第三层:生成今日整体分析(连面)...")
+        try:
+            ai_client = create_ai_client(self.config.ai)
+            synthesis = await ai_client.complete(
+                system=DAILY_SYNTHESIS_SYSTEM,
+                user=user_prompt,
+            )
+            synthesis = (synthesis or "").strip()
+            # 去掉可能的 <think> 推理段(部分模型会带)
+            import re as _re
+            synthesis = _re.sub(r"<think>.*?</think>", "", synthesis, flags=_re.DOTALL).strip()
+            # 单独存盘:作为沉淀层(月度结晶)的原料
+            try:
+                self.storage.save_daily_summary(today, synthesis, language="synthesis")
+            except Exception as e:
+                self.console.print(f"[yellow]⚠️  整体分析存盘失败: {e}[/yellow]")
+            self.console.print("   今日整体分析已生成\n")
+            return synthesis
+        except Exception as e:
+            self.console.print(f"[yellow]⚠️  第三层整体分析失败,跳过: {e}[/yellow]\n")
+            return ""
+
+    def _inject_synthesis(self, summary: str, synthesis: str, lang: str) -> str:
+        """把第三层整体分析插入日报正文。
+
+        插在第一条 '---' 分隔线之后(即标题/导语之后、目录之前),
+        作为'今日整体观察'板块置顶呈现。
+        """
+        heading = "## 🧩 今日整体观察" if lang == "zh" else "## 🧩 Daily Synthesis"
+        block = f"{heading}\n\n{synthesis}\n\n---\n\n"
+        marker = "---\n\n"
+        idx = summary.find(marker)
+        if idx == -1:
+            # 找不到分隔线就直接插到最前
+            return block + summary
+        insert_at = idx + len(marker)
+        return summary[:insert_at] + block + summary[insert_at:]
+
 
     async def _analyze_content(self, items: List[ContentItem]) -> List[ContentItem]:
         """Analyze content items with AI.
