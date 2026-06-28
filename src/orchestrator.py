@@ -29,6 +29,16 @@ from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
 
 
+def _la_date_str() -> str:
+    """返回洛杉矶时区当天日期字符串(用于输出文件命名,与工作流保持一致)。
+    注:仅用于输出文件名;采集时间窗口仍用 UTC,不受影响。"""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y-%m-%d")
+    except Exception:
+        return (datetime.now(timezone.utc) - timedelta(hours=7)).strftime("%Y-%m-%d")
+
+
 @dataclass
 class BalancedDigestResult:
     """Items and selection statistics from balanced digest filtering."""
@@ -175,7 +185,7 @@ class HorizonOrchestrator:
             daily_synthesis = await self._synthesize_daily(important_items)
 
             # 7. Generate and save daily summaries for each configured language
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = _la_date_str()
             for lang in self.config.ai.languages:
                 summarizer = DailySummarizer()
                 summary = await summarizer.generate_summary(important_items, today, len(all_items), language=lang)
@@ -262,7 +272,7 @@ class HorizonOrchestrator:
             # Send webhook failure notification if configured
             if self.webhook_notifier:
                 await self.webhook_notifier.send_failure(
-                    date=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    date=_la_date_str(),
                     error_message=str(e),
                 )
 
@@ -727,7 +737,7 @@ class HorizonOrchestrator:
             lines.append(f"{i}. 【{title}】(重要性 {item.ai_score}/10)\n   {detail}")
         items_digest = "\n\n".join(lines)
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = _la_date_str()
         user_prompt = DAILY_SYNTHESIS_USER.format(date=today, items_digest=items_digest)
 
         self.console.print("🧩 第三层:生成今日整体分析(连面)...")
