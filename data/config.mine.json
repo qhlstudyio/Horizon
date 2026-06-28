@@ -15,10 +15,6 @@
     "languages": ["zh"]
   },
 
-  "email": {
-    "enabled": false
-  },
-
   "sources": {
     "rss": [
       { "name": "Anthropic",          "url": "https://www.anthropic.com/rss.xml",                                  "enabled": true, "category": "ai-news" },
@@ -44,8 +40,8 @@
     "reddit": {
       "enabled": true,
       "subreddits": [
-        { "name": "LocalLLaMA",      "enabled": true },
-        { "name": "MachineLearning", "enabled": true }
+        { "subreddit": "LocalLLaMA",      "enabled": true },
+        { "subreddit": "MachineLearning", "enabled": true }
       ]
     }
   },
